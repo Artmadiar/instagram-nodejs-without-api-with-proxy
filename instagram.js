@@ -7,12 +7,13 @@
 
 const fetch = require('node-fetch');
 const formData = require('form-data');
+const HttpsProxyAgent = require('https-proxy-agent');
 
 module.exports = class Instagram {
   /**
     * Constructor
   */
-  constructor(csrfToken, sessionId) {
+  constructor(csrfToken, sessionId, proxy) {
     this.csrfToken = csrfToken
     this.sessionId = sessionId
     this.userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36'
@@ -22,6 +23,8 @@ module.exports = class Instagram {
     this.paginationDelay = 30000
     this.receivePromises = {}
     this.searchTypes = ['location', 'hashtag']
+
+    this.proxy = proxy;
 
     this.essentialValues = {
       sessionid   : undefined,
@@ -115,6 +118,10 @@ module.exports = class Instagram {
           }
         )
     }
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
     
     return fetch('https://www.instagram.com/' + username, fetch_data).then(res => res.text().then(function (data) {
       console.log(data)
@@ -171,19 +178,26 @@ module.exports = class Instagram {
 
     const variables = encodeURIComponent(JSON.stringify(query));
 
+    const fetch_data = {
+      'method': 'get',
+      'headers':
+        this.combineWithBaseHeader(
+          {
+            'accept': 'text/html,application/xhtml+xml,application/xml;q0.9,image/webp,image/apng,*.*;q=0.8',
+            'accept-encoding': 'gzip, deflate, br',
+            'cookie': this.generateCookie()
+          }
+        )
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     self.receivePromises[userId] = 1
     return fetch('https://www.instagram.com/graphql/query/?query_hash=56066f031e6239f35a904ac20c9f37d9&variables=' + variables,
-      {
-        'method': 'get',
-        'headers':
-          this.combineWithBaseHeader(
-            {
-              'accept': 'text/html,application/xhtml+xml,application/xml;q0.9,image/webp,image/apng,*.*;q=0.8',
-              'accept-encoding': 'gzip, deflate, br',
-              'cookie': this.generateCookie()
-            }
-          )
-      }).then(res => {
+      fetch_data
+    ).then(res => {
         return res.text().then((response) => {
           //prepare convert to json
           let json = response;
@@ -236,18 +250,23 @@ module.exports = class Instagram {
     * @return {Object} Promise
   */
   getCsrfToken() {
-    return fetch('https://www.instagram.com',
-      {
-        'method': 'get',
-        'headers':
-          this.combineWithBaseHeader(
-            {
-              'accept': 'text/html,application/xhtml+xml,application/xml;q0.9,image/webp,image/apng,*.*;q=0.8',
-              'accept-encoding': 'gzip, deflate, br',
-              'cookie': this.generateCookie(true)
-            }
-          )
-      }).then( t => {
+    const fetch_data = {
+      'method': 'get',
+      'headers':
+        this.combineWithBaseHeader(
+          {
+            'accept': 'text/html,application/xhtml+xml,application/xml;q0.9,image/webp,image/apng,*.*;q=0.8',
+            'accept-encoding': 'gzip, deflate, br',
+            'cookie': this.generateCookie(true)
+          }
+        )
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
+    return fetch('https://www.instagram.com', fetch_data).then( t => {
         this.updateEssentialValues(t.headers._headers['set-cookie'])
         return t.text()
       }).then( html => {
@@ -285,6 +304,10 @@ module.exports = class Instagram {
       )
   }
 
+  if (this.proxy) {
+    options.agent = new HttpsProxyAgent(this.proxy);
+  }
+
   return fetch('https://www.instagram.com/accounts/login/ajax/', options).then(
     t => {
       this.updateEssentialValues(t.headers._headers['set-cookie'])
@@ -311,7 +334,7 @@ module.exports = class Instagram {
     form.append('email', email)
     form.append('seamless_login_enabled', "1")
 
-    return fetch('https://www.instagram.com/accounts/web_create_ajax/', {
+    const fetch_data = {
       'method': 'post',
       'body': form,
       'headers': {
@@ -323,7 +346,13 @@ module.exports = class Instagram {
         'x-csrftoken': this.csrfToken,
         cookie: 'csrftoken=' + this.csrfToken
       }
-    })
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
+    return fetch('https://www.instagram.com/accounts/web_create_ajax/', fetch_data)
       .then(res => res.json())
       .then(json => {
         //console.log(json.errors);
@@ -355,11 +384,18 @@ module.exports = class Instagram {
       cookie: ' sessionid=' + this.sessionId + '; csrftoken=' + this.csrfToken + '; mid=WPL0LQAEAAGG3XL5-xHXzClnpqA3; rur=ASH; mid=WRN1_AAEAAE07QksztCl3OCnLj8Y;'
     }
 
+    const fetch_data = {
+      'method': 'post',
+      'headers': this.getHeaders()//headers
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     return fetch('https://www.instagram.com/web/friendships/' + userId + (isUnfollow == 1 ? '/unfollow' : '/follow'),
-      {
-        'method': 'post',
-        'headers': this.getHeaders()//headers
-      }).then(res => {
+      fetch_data
+    ).then(res => {
         return res
       })
   }
@@ -387,15 +423,20 @@ module.exports = class Instagram {
   getUserDataById(id) {
     let query = 'ig_user(' + id + '){id,username,external_url,full_name,profile_pic_url,biography,followed_by{count},follows{count},media{count},is_private,is_verified}'
 
+    const fetch_data = {
+      'method': 'post',
+      'body': form,
+      'headers': this.getHeaders()
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     let form = new formData();
     form.append('q', query)
 
-    return fetch('https://www.instagram.com/query/',
-      {
-        'method': 'post',
-        'body': form,
-        'headers': this.getHeaders()
-      }).then(res =>
+    return fetch('https://www.instagram.com/query/', fetch_data).then(res =>
         res.json().then(t => t)
       )
   }
@@ -412,11 +453,17 @@ module.exports = class Instagram {
     * @return {Object} Promise
   */
   getFeed(items, cursor) {
+    const fetch_data = {
+      headers: this.getHeaders(),
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     items = items ? items : 10;
     return fetch('https://www.instagram.com/graphql/query/?query_id=17866917712078875&fetch_media_item_count=' + items + '&fetch_media_item_cursor=' + cursor + '&fetch_comment_count=4&fetch_like=10',
-      {
-        headers: this.getHeaders(),
-      }).then(t =>
+      fetch_data).then(t =>
         // console.log(t)
         t.json().then(r => r)
       )
@@ -440,11 +487,18 @@ module.exports = class Instagram {
     * @return {Object} Promse
   */
   like(postId) {
+    const fetch_data = {
+      'method': 'POST',
+      'headers': this.getHeaders()
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     return fetch('https://www.instagram.com/web/likes/' + postId + '/like/',
-      {
-        'method': 'POST',
-        'headers': this.getHeaders()
-      }).then(t =>
+      fetch_data
+    ).then(t =>
         t.json().then(r => r)
       )
   }
@@ -456,11 +510,18 @@ module.exports = class Instagram {
     * @return {Object} Promse
   */
   unlike(postId) {
+    const fetch_data = {
+      'method': 'POST',
+      'headers': this.getHeaders()
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     return fetch('https://www.instagram.com/web/likes/' + postId + '/unlike/',
-      {
-        'method': 'POST',
-        'headers': this.getHeaders()
-      }).then(t =>
+      fetch_data
+    ).then(t =>
         t.json().then(r => r)
       )
   }
@@ -472,10 +533,15 @@ module.exports = class Instagram {
     * @return {Object} Promise
   */
   getMediaInfoByUrl(url) {
-    return fetch('https://api.instagram.com/oembed/?url=' + url,
-      {
-        'headers': this.getHeaders()
-      }).then(t => t.json().then(r => r))
+    const fetch_data = {
+      'headers': this.getHeaders()
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
+    return fetch('https://api.instagram.com/oembed/?url=' + url, fetch_data).then(t => t.json().then(r => r))
   }
 
   /**
@@ -531,12 +597,18 @@ module.exports = class Instagram {
     form.append('ref', 'users::show')
     form.append('query_id', '17849115430193904') // this is static id. May be changed after rebuild, but now actually
 
+    const fetch_data = {
+      headers: this.getHeaders(),
+      method: 'post',
+      body: form
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     return fetch('https://www.instagram.com/query/',
-      {
-        headers: this.getHeaders(),
-        method: 'post',
-        body: form
-      }).then(r => r.text().then(t => t))
+      fetch_data).then(r => r.text().then(t => t))
   }
 
   /**
@@ -552,12 +624,18 @@ module.exports = class Instagram {
     if (this.searchTypes.indexOf(searchBy) === false)
       throw 'search type ' + searchBy + ' is not found'
 
+    const fetch_data = {
+      headers: this.getHeaders(),
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     //exclusion for hashtag if not cursor
     if (searchBy == 'hashtag' && !cursor) {
       return fetch('https://www.instagram.com/explore/tags/' + q + '/',
-        {
-          headers: this.getHeaders(),
-        }).then(t => t.text().then(r => JSON.parse(r.match(/\<script type=\"text\/javascript\">window\._sharedData \=(.*)\;<\//)[1])))
+        fetch_data).then(t => t.text().then(r => JSON.parse(r.match(/\<script type=\"text\/javascript\">window\._sharedData \=(.*)\;<\//)[1])))
     }
 
     let form = new formData()
@@ -597,12 +675,18 @@ module.exports = class Instagram {
     form.append('query_id', '') //empty
 
 
+    const fetch_data = {
+      headers: this.getHeaders(),
+      method: 'post',
+      body: form
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     return fetch('https://www.instagram.com/query/',
-      {
-        headers: this.getHeaders(),
-        method: 'post',
-        body: form
-      }).then(t => t.json().then(r => r))
+      fetch_data).then(t => t.json().then(r => r))
   }
 
   /**
@@ -612,10 +696,16 @@ module.exports = class Instagram {
     * @return {Object} Promise
   */
   commonSearch(q, rankToken) {
+    const fetch_data = {
+      headers: this.getHeaders() // no required
+    };
+
+    if (this.proxy) {
+      fetch_data.agent = new HttpsProxyAgent(this.proxy);
+    }
+
     rankToken = rankToken ? rankToken : ''
     return fetch('https://www.instagram.com/web/search/topsearch/?context=blended&query=' + q + '&rank_token=' + rankToken,
-      {
-        headers: this.getHeaders() // no required
-      }).then(t => t.json().then(r => r))
+      fetch_data).then(t => t.json().then(r => r))
   }
 }
